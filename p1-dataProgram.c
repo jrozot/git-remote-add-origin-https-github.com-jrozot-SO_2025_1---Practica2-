@@ -3,10 +3,16 @@
 #include <unistd.h>
 #include <fcntl.h>
 #include <string.h>
+#include <signal.h>
+
+#include <netinet/in.h>
+#include <sys/socket.h>
+#include <arpa/inet.h>
+
 #include "hash_module.h"
 
-#define QUERY_PIPE "query_pipe"
-#define SEARCH_PIPE "search_pipe"
+#define PORT 3550
+#define BACKLOG 8
 
 // ANSI color codes
 #define COLOR_RESET     "\033[0m"
@@ -20,43 +26,56 @@
 #define COLOR_BLUE      "\033[34m"
 #define COLOR_GRAY      "\033[90m"
 
+struct sockaddr_in server, client;
+socklen_t lenclient;
+int fd;
+char buffer[100];
+char ipAddress[15];
+
 FILE *main_index, *csv;
 
 void print_welcome_message();
 
 void print_prompt_barcode();
 
-void display_product_info(const char *line);
+void display_product_info_struct(const Product *p);
 
-int main(void) {
-    int query_fd = open(QUERY_PIPE, O_WRONLY);
-    int search_fd = open(SEARCH_PIPE, O_RDONLY);
+void cleanup_and_exit(int sig);
 
-    if (query_fd == -1 || search_fd == -1) {
-        perror("Failed to open FIFOs");
-        return 1;
+//int main(void) {
+    
+int main(int argc, char *argv[]) {
+    if (argc != 2) {
+        fprintf(stderr, "Usage: %s <server_ip_address>\n", argv[0]);
+        exit(EXIT_FAILURE);
     }
 
-    csv = fopen("Data/products.csv", "r");
-    if (!csv){
-        perror("Error opening products.csv file");
-        return 1;
-    }
+    const char *server_ip = argv[1];
 
-    main_index = fopen("Data/main_index.dat", "rb");
-    if (!main_index) {
-        perror("Error opening Data/main_index.dat file");
-        write_main_index(csv);
-        main_index = fopen("Data/main_index.dat", "rb");
-    }
+    signal(SIGINT, cleanup_and_exit);
+    signal(SIGTERM, cleanup_and_exit);
 
     char buffer[32];
     long value;
+    Product product;
+
+    fd = socket(AF_INET, SOCK_STREAM, 0);
+    client.sin_family = AF_INET;
+    client.sin_port = htons(PORT);
+    client.sin_addr.s_addr = inet_addr(server_ip);
+    bzero(server.sin_zero, 8);
+
+    int err = connect( fd, (struct sockaddr*) &client, sizeof(struct sockaddr) );
+    if ( err == -1 ){
+        perror("error: failed to connect");
+        return 1;
+    }
 
     print_welcome_message();
 
     while (1) {
         print_prompt_barcode();
+
         if (!fgets(buffer, sizeof(buffer), stdin)) break;
 
         // Remove trailing newline
@@ -72,158 +91,73 @@ int main(void) {
         value = atol(buffer);
 
         // Pass query to search module
-        write(query_fd, &value, sizeof(long));
+        err = send( fd, &value, sizeof(long), 0 );
+        if ( err == -1 ) perror("error: failed to send");
 
         // Wait for response
-        long line_number, offset;
-        ssize_t bytes_read = read(search_fd, &line_number, sizeof(long));
-        if (bytes_read > 0) 
-            printf("user_interface received: %ld\n", line_number);
+        ssize_t n = recv( fd, &product, sizeof(Product), 0);
 
-        if (line_number == -1) {
+        if (n <= 0) {
+            printf("Server closed connection.\n");
+            break;
+        }
+
+        if (product.line_number == -1) {
             printf("Code %13ld not found in data file.\n", value);
         }else{    
-            // Seek to the position of the offset in the index file
-            if (fseek(main_index, line_number * sizeof(long int), SEEK_SET) != 0) {
-                perror("fseek failed on index file");
-                fclose(main_index);
-                return 1;
-            }
-
-            // Read the offset for the requested line
-            if (fread(&offset, sizeof(long int), 1, main_index) != 1) {
-                fprintf(stderr, "Error reading offset for line %ld\n", line_number);
-                return 1;
-            }
-
-            // Open the CSV and seek to the offset
-            if (!csv) {
-                perror("Error opening CSV file");
-                return 1;
-            }
-
-            // Seek to the offset in the csv file to read the line
-            if (fseek(csv, offset, SEEK_SET) != 0) {
-                perror("fseek failed on CSV file");
-                fclose(csv);
-                return 1;
-            }
-
             // Read and print the line
-            char *line = NULL;
-            size_t len = 0;
-            if (getline(&line, &len, csv) != -1) {
-                display_product_info(line);
-            } else {
-                fprintf(stderr, "Failed to read line at offset %ld\n", offset);
-            }
-            free(line);
+            display_product_info_struct(&product);
         }
     }
 
-    close(query_fd);
-    close(search_fd);
 
-    fclose(main_index);
-    fclose(csv);
+    close(fd);
     return 0;
 }
 
-void display_product_info(const char *line) {
-    char field[512];
+void display_product_info_struct(const Product *p) {
+    printf("\033[2J\033[H"); // Clear screen
 
-    // Clear screen
-    printf("\033[2J\033[H");
-
-    //
-    // $ Product Overview
-    //
+    // Product Overview
     printf(COLOR_BOLD COLOR_CYAN "┏━━━━━━━━━━━━━━━━━━━━━━┓\n");
     printf("┃ $ Product Overview   ┃\n");
     printf("┗━━━━━━━━━━━━━━━━━━━━━━┛\n" COLOR_RESET);
+    printf(COLOR_BOLD "  Name:          " COLOR_RESET "%s\n", p->product_name);
+    printf(COLOR_BOLD "  Brand:         " COLOR_RESET "%s\n", p->brands);
+    printf(COLOR_BOLD "  Quantity:      " COLOR_RESET "%s\n", p->quantity);
+    printf(COLOR_BOLD "  Category:      " COLOR_RESET "%s\n", p->main_category);
+    printf(COLOR_BOLD "  Packaging:     " COLOR_RESET "%s\n", p->packaging);
+    printf(COLOR_BOLD "  Sold In:       " COLOR_RESET "%s\n", p->countries_en);
+    printf(COLOR_BOLD "  Origin:        " COLOR_RESET "%s\n", p->origins_en);
 
-    extract_field(line, product_name, field);
-    printf(COLOR_BOLD "  Name:          " COLOR_RESET "%s\n", field);
-
-    extract_field(line, brands, field);
-    printf(COLOR_BOLD "  Brand:         " COLOR_RESET "%s\n", field);
-
-    extract_field(line, quantity, field);
-    printf(COLOR_BOLD "  Quantity:      " COLOR_RESET "%s\n", field);
-
-    extract_field(line, main_category, field);
-    printf(COLOR_BOLD "  Category:      " COLOR_RESET "%s\n", field);
-
-    extract_field(line, packaging, field);
-    printf(COLOR_BOLD "  Packaging:     " COLOR_RESET "%s\n", field);
-
-    extract_field(line, countries_en, field);
-    printf(COLOR_BOLD "  Sold In:       " COLOR_RESET "%s\n", field);
-
-    extract_field(line, origins_en, field);
-    printf(COLOR_BOLD "  Origin:        " COLOR_RESET "%s\n", field);
-
-    //
-    // # Health Summary
-    //
+    // Health Summary
     printf("\n" COLOR_BOLD COLOR_GREEN "┏━━━━━━━━━━━━━━━━━━━━━━┓\n");
     printf("┃ # Health Summary     ┃\n");
     printf("┗━━━━━━━━━━━━━━━━━━━━━━┛\n" COLOR_RESET);
+    printf(COLOR_BOLD "  Nutri-Score:   " COLOR_RESET "%s\n", p->nutriscore_grade);
+    printf(COLOR_BOLD "  NOVA Group:    " COLOR_RESET "%s\n", p->nova_group);
+    printf(COLOR_BOLD "  Additives (n): " COLOR_RESET "%s\n", p->additives_n);
+    printf(COLOR_BOLD "  Additives:     " COLOR_RESET "%s\n", p->additives_tags);
+    printf(COLOR_BOLD "  Allergens:     " COLOR_RESET "%s\n", p->allergens);
+    printf(COLOR_BOLD "  Traces:        " COLOR_RESET "%s\n", p->traces);
+    printf(COLOR_BOLD "  Eco Score:     " COLOR_RESET "%s\n", p->environmental_score_grade);
 
-    extract_field(line, nutriscore_grade, field);
-    printf(COLOR_BOLD "  Nutri-Score:   " COLOR_RESET "%s\n", field);
-
-    extract_field(line, nova_group, field);
-    printf(COLOR_BOLD "  NOVA Group:    " COLOR_RESET "%s\n", field);
-
-    extract_field(line, additives_n, field);
-    printf(COLOR_BOLD "  Additives (n): " COLOR_RESET "%s\n", field);
-
-    extract_field(line, additives_tags, field);
-    printf(COLOR_BOLD "  Additives:     " COLOR_RESET "%s\n", field);
-
-    extract_field(line, allergens, field);
-    printf(COLOR_BOLD "  Allergens:     " COLOR_RESET "%s\n", field);
-
-    extract_field(line, traces, field);
-    printf(COLOR_BOLD "  Traces:        " COLOR_RESET "%s\n", field);
-
-    extract_field(line, environmental_score_grade, field);
-    printf(COLOR_BOLD "  Eco Score:     " COLOR_RESET "%s\n", field);
-
-    //
-    // % Nutritional Facts
-    //
+    // Nutritional Facts
     printf("\n" COLOR_BOLD COLOR_YELLOW "┏━━━━━━━━━━━━━━━━━━━━━━┓\n");
-    printf("┃ % Nutritional Facts  ┃\n");
+    printf("┃ X Nutritional Facts  ┃\n");
     printf("┗━━━━━━━━━━━━━━━━━━━━━━┛\n" COLOR_RESET);
-
     printf(COLOR_BOLD "  Nutrient            per 100g\n" COLOR_RESET);
     printf("  ---------------------------------\n");
-
-    extract_field(line, energy_kcal_100g, field);
-    printf("  Energy (kcal):      %s\n", field);
-
-    extract_field(line, fat_100g, field);
-    printf("  Fat:                %s g\n", field);
-
-    extract_field(line, saturated_fat_100g, field);
-    printf("  Saturated Fat:      %s g\n", field);
-
-    extract_field(line, sugars_100g, field);
-    printf("  Sugars:             %s g\n", field);
-
-    extract_field(line, fiber_100g, field);
-    printf("  Fiber:              %s g\n", field);
-
-    extract_field(line, proteins_100g, field);
-    printf("  Protein:            %s g\n", field);
-
-    extract_field(line, salt_100g, field);
-    printf("  Salt:               %s g\n", field);
+    printf("  Energy (kcal):      %s\n", p->energy_kcal_100g);
+    printf("  Fat:                %s g\n", p->fat_100g);
+    printf("  Saturated Fat:      %s g\n", p->saturated_fat_100g);
+    printf("  Sugars:             %s g\n", p->sugars_100g);
+    printf("  Fiber:              %s g\n", p->fiber_100g);
+    printf("  Protein:            %s g\n", p->proteins_100g);
+    printf("  Salt:               %s g\n", p->salt_100g);
 
     printf(COLOR_GRAY "\n(Press Enter to continue...)" COLOR_RESET);
-    getchar(); // pause until user hits Enter
+    getchar();
 }
 
 void print_welcome_message() {
@@ -245,4 +179,10 @@ void print_prompt_barcode() {
     printf("┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛\n");
     printf("\033[0m"); // Reset color
     printf("> ");
+}
+
+void cleanup_and_exit(int sig) {
+    printf("\nReceived SIGINT. Cleaning up...\n");
+    close(fd);
+    exit(0);
 }

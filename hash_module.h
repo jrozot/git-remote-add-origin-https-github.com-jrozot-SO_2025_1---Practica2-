@@ -2,6 +2,7 @@
 
 #define TABLE_SIZE 5000003  
 #define INDEX_RECORD_SIZE (NAME_BUFFER_SIZE + sizeof(long))
+#define FIELD_SIZE 512
 
 enum fields {
     code,
@@ -233,6 +234,33 @@ typedef struct {
     long line_number;
     long next_offset;
 } FileNode;
+
+typedef struct {
+    long line_number;
+    char product_name[FIELD_SIZE];
+    char brands[FIELD_SIZE];
+    char quantity[FIELD_SIZE];
+    char main_category[FIELD_SIZE];
+    char packaging[FIELD_SIZE];
+    char countries_en[FIELD_SIZE];
+    char origins_en[FIELD_SIZE];
+
+    char nutriscore_grade[FIELD_SIZE];
+    char nova_group[FIELD_SIZE];
+    char additives_n[FIELD_SIZE];
+    char additives_tags[FIELD_SIZE];
+    char allergens[FIELD_SIZE];
+    char traces[FIELD_SIZE];
+    char environmental_score_grade[FIELD_SIZE];
+
+    char energy_kcal_100g[FIELD_SIZE];
+    char fat_100g[FIELD_SIZE];
+    char saturated_fat_100g[FIELD_SIZE];
+    char sugars_100g[FIELD_SIZE];
+    char fiber_100g[FIELD_SIZE];
+    char proteins_100g[FIELD_SIZE];
+    char salt_100g[FIELD_SIZE];
+} Product;
 
 HashTable* create_table();
 

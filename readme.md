@@ -18,7 +18,7 @@ El propósito de este proyecto es **desarrollar habilidades de programación** u
 1. Compilar el proyecto utilizando el `Makefile` incluido.
 2. Ejecutar el módulo `search_module` **primero**, en una consola separada.
    - Este módulo debe ser detenido manualmente con la señal `SIGINT` (`Ctrl + C`).
-3. Ejecutar el módulo `user_interface` en otra terminal.
+3. Ejecutar el módulo `user_interface <server_ip>` en otra terminal.
    - Puede terminarse escribiendo `exit`.
 4. Asegúrese de que el archivo `.csv` esté ubicado como:
 
