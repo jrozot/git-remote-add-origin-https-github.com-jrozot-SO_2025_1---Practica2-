@@ -11,7 +11,7 @@
 
 #include "hash_module.h"
 
-#define PORT 8080
+#define PORT 3550 
 #define BACKLOG 8
 
 // ANSI color codes

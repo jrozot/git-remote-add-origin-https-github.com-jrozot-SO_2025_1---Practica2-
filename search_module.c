@@ -29,6 +29,8 @@ void parse_product_line(const char *line, Product *p);
 
 void cleanup_and_exit(int sig);
 
+void display_product(const Product *p);
+
 int main(void) {
     signal(SIGINT, cleanup_and_exit);
     signal(SIGTERM, cleanup_and_exit);
@@ -144,6 +146,7 @@ int main(void) {
             }
             
             printf("Sending message to client...\n");
+            display_product(&product);
             err = send( clientfd, &product , sizeof(Product), 0);
             if ( err == -1 ) perror("error: failed not send");
 
@@ -178,6 +181,31 @@ void parse_product_line(const char *line, Product *p) {
     extract_field(line, fiber_100g, p->fiber_100g);
     extract_field(line, proteins_100g, p->proteins_100g);
     extract_field(line, salt_100g, p->salt_100g);
+}
+
+void display_product(const Product *p) {
+    printf("\n--- Product Info ---\n");
+    printf("Name: %s\n", p->product_name);
+    printf("Brand: %s\n", p->brands);
+    printf("Quantity: %s\n", p->quantity);
+    printf("Category: %s\n", p->main_category);
+    printf("Packaging: %s\n", p->packaging);
+    printf("Sold In: %s\n", p->countries_en);
+    printf("Origin: %s\n", p->origins_en);
+    printf("Nutri-Score: %s\n", p->nutriscore_grade);
+    printf("NOVA Group: %s\n", p->nova_group);
+    printf("Additives (n): %s\n", p->additives_n);
+    printf("Additives: %s\n", p->additives_tags);
+    printf("Allergens: %s\n", p->allergens);
+    printf("Traces: %s\n", p->traces);
+    printf("Eco Score: %s\n", p->environmental_score_grade);
+    printf("Energy: %s kcal\n", p->energy_kcal_100g);
+    printf("Fat: %s g\n", p->fat_100g);
+    printf("Saturated Fat: %s g\n", p->saturated_fat_100g);
+    printf("Sugars: %s g\n", p->sugars_100g);
+    printf("Fiber: %s g\n", p->fiber_100g);
+    printf("Proteins: %s g\n", p->proteins_100g);
+    printf("Salt: %s g\n", p->salt_100g);
 }
 
 void cleanup_and_exit(int sig) {
